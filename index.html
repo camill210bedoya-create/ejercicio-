@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Toyota Supra MK4 - 3D Point Cloud Visualizer</title>
+    <!-- Tailwind CSS para la interfaz -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js para renderizado 3D -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- OrbitControls para control intuitivo de cámara -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- FontAwesome para iconos -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #050508;
+            font-family: 'Rajdhani', sans-serif;
+            user-select: none;
+            color: #e2e8f0;
+        }
+
+        .font-orbitron {
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        /* Glassmorphism UI */
+        .glass-panel {
+            background: rgba(10, 15, 25, 0.75);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(0, 243, 255, 0.15);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.6);
+        }
+
+        .glass-button {
+            background: rgba(20, 25, 40, 0.8);
+            border: 1px solid rgba(0, 243, 255, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        .glass-button:hover {
+            background: rgba(0, 243, 255, 0.2);
+            border-color: rgba(0, 243, 255, 0.8);
+            box-shadow: 0 0 15px rgba(0, 243, 255, 0.4);
+        }
+
+        .glass-button.active {
+            background: rgba(0, 243, 255, 0.3);
+            border-color: #00f3ff;
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.6);
+        }
+
+        /* Custom Slider Styling */
+        input[type=range] {
+            -webkit-appearance: none;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+            height: 6px;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #00f3ff;
+            cursor: pointer;
+            box-shadow: 0 0 10px #00f3ff;
+        }
+
+        /* Ambient scanline grid */
+        .scanline {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(
+                rgba(18, 16, 16, 0) 50%, 
+                rgba(0, 0, 0, 0.25) 50%
+            );
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 5;
+            opacity: 0.6;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+
+        /* Glowing text effects */
+        .glow-text {
+            text-shadow: 0 0 10px rgba(0, 243, 255, 0.7), 0 0 20px rgba(0, 243, 255, 0.3);
+        }
+    </style>
+</head>
+<body class="bg-black text-white overflow-hidden">
+
+    <!-- Canvas para Three.js -->
+    <div id="canvas-container"></div>
+
+    <!-- Retro CRT Filter Lines -->
+    <div class="scanline"></div>
+
+    <!-- UI Overlay Header -->
+    <header class="absolute top-4 left-4 right-4 z-10 flex justify-between items-center pointer-events-none">
+        <div class="glass-panel px-6 py-3 rounded-xl pointer-events-auto flex items-center gap-4">
+            <i class="fa-solid fa-car-side text-2xl text-cyan-400"></i>
+            <div>
+                <h1 class="font-orbitron font-extrabold text-xl sm:text-2xl tracking-wider text-cyan-400 glow-text">TOYOTA SUPRA <span class="text-white">MK4</span></h1>
+                <p class="text-xs text-slate-400 tracking-widest font-mono">3D POINT CLOUD CYBER VISUALIZER</p>
+            </div>
+        </div>
+
+        <div class="hidden sm:flex glass-panel px-4 py-2 rounded-xl text-xs font-mono text-cyan-300 gap-4 items-center">
+            <span><i class="fa-solid fa-cube mr-1"></i> PARTÍCULAS: <strong id="particle-count">12,500</strong></span>
+            <span><i class="fa-solid fa-gauge-high mr-1"></i> FPS: <strong id="fps-meter">60</strong></span>
+        </div>
+    </header>
+
+    <!-- Controles Flotantes Principales (UI) -->
+    <main class="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 w-[92%] max-w-4xl">
+        <div class="glass-panel p-4 sm:p-6 rounded-2xl flex flex-col md:flex-row gap-6 items-center justify-between">
+            
+            <!-- Toggles de Efectos -->
+            <div class="flex flex-wrap items-center justify-center gap-3 w-full md:w-auto">
+                <button id="btn-smoke" class="glass-button active px-4 py-2.5 rounded-xl font-orbitron text-xs sm:text-sm font-semibold flex items-center gap-2 text-cyan-300">
+                    <i class="fa-solid fa-smog text-lg"></i>
+                    <span>BURNOUT / HUMO</span>
+                </button>
+
+                <button id="btn-rotate" class="glass-button active px-4 py-2.5 rounded-xl font-orbitron text-xs sm:text-sm font-semibold flex items-center gap-2 text-cyan-300">
+                    <i class="fa-solid fa-rotate text-lg"></i>
+                    <span>ROTACIÓN 360°</span>
+                </button>
+
+                <button id="btn-underglow" class="glass-button active px-4 py-2.5 rounded-xl font-orbitron text-xs sm:text-sm font-semibold flex items-center gap-2 text-cyan-300">
+                    <i class="fa-solid fa-lightbulb text-lg"></i>
+                    <span>NEÓN CHASSIS</span>
+                </button>
+            </div>
+
+            <!-- Sliders y Ajustes de Modos -->
+            <div class="flex flex-col sm:flex-row gap-4 w-full md:w-auto items-center">
+                <!-- Speed Slider -->
+                <div class="flex flex-col gap-1 w-full sm:w-36">
+                    <div class="flex justify-between text-xs font-mono text-slate-300">
+                        <span>VELOCIDAD:</span>
+                        <span id="speed-val" class="text-cyan-400">1.0x</span>
+                    </div>
+                    <input type="range" id="slider-speed" min="0" max="3" step="0.1" value="1.0" class="w-full">
+                </div>
+
+                <!-- Particle Density / Size -->
+                <div class="flex flex-col gap-1 w-full sm:w-36">
+                    <div class="flex justify-between text-xs font-mono text-slate-300">
+                        <span>TAMAÑO PUNTOS:</span>
+                        <span id="size-val" class="text-cyan-400">0.05</span>
+                    </div>
+                    <input type="range" id="slider-size" min="0.02" max="0.12" step="0.01" value="0.05" class="w-full">
+                </div>
+
+                <!-- Selector de Color Neon -->
+                <div class="flex gap-2 items-center justify-center pt-2 sm:pt-0">
+                    <button class="color-btn w-7 h-7 rounded-full border-2 border-white/40 bg-cyan-400 shadow-lg shadow-cyan-500/50 scale-110" data-color="#00f3ff"></button>
+                    <button class="color-btn w-7 h-7 rounded-full border-2 border-white/20 bg-fuchsia-500 hover:scale-105 transition" data-color="#ff00ff"></button>
+                    <button class="color-btn w-7 h-7 rounded-full border-2 border-white/20 bg-emerald-400 hover:scale-105 transition" data-color="#00ff88"></button>
+                    <button class="color-btn w-7 h-7 rounded-full border-2 border-white/20 bg-amber-400 hover:scale-105 transition" data-color="#ffaa00"></button>
+                    <button class="color-btn w-7 h-7 rounded-full border-2 border-white/20 bg-red-500 hover:scale-105 transition" data-color="#ff1133"></button>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Controls Tooltip -->
+    <div class="absolute top-20 left-4 z-10 hidden md:block">
+        <div class="glass-panel p-3 rounded-xl text-xs font-mono text-slate-400 flex flex-col gap-1">
+            <div><i class="fa-solid fa-hand-pointer text-cyan-400 mr-2"></i>Click Izq + Arrastrar: Rotate</div>
+            <div><i class="fa-solid fa-arrows-up-down-left-right text-cyan-400 mr-2"></i>Click Der + Arrastrar: Pan</div>
+            <div><i class="fa-solid fa-magnifying-glass text-cyan-400 mr-2"></i>Rueda Mouse: Zoom</div>
+        </div>
+    </div>
+
+    <!-- Script de Animación y Modelado 3D -->
+    <script>
+        // Variables globales
+        let scene, camera, renderer, controls;
+        let carPointCloud, wheelParticles = [];
+        let smokeSystem, smokeParticles = [];
+        let underglowPoints, gridHelper;
+        
+        // Estado de animación
+        const state = {
+            autoRotate: true,
+            rotationSpeed: 0.005,
+            speedMultiplier: 1.0,
+            smokeActive: true,
+            underglowActive: true,
+            pointSize: 0.05,
+            primaryColor: new THREE.Color(0x00f3ff),
+            secondaryColor: new THREE.Color(0xff00ff),
+            smokeColor: new THREE.Color(0x88bbff)
+        };
+
+        // Medidor FPS
+        let lastTime = performance.now();
+        let frameCount = 0;
+
+        // Inicialización al cargar la ventana
+        window.onload = function() {
+            initScene();
+            createSupraMK4();
+            createSmokeSystem();
+            createCyberGrid();
+            setupEvents();
+            animate();
+        };
+
+        // 1. Configuración de Escena Three.js
+        function initScene() {
+            const container = document.getElementById('canvas-container');
+            
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x050508, 0.035);
+
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(4.5, 2.0, 5.5);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor(scene.fog.color);
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.2;
+            container.appendChild(renderer.domElement);
+
+            // OrbitControls para navegar en 3D
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxPolarAngle = Math.PI / 2 + 0.05; // No pasar bajo el suelo
+            controls.minDistance = 2;
+            controls.maxDistance = 15;
+            controls.target.set(0, 0.4, 0);
+
+            // Luz suave para acentuar partículas
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+        }
+
+        // 2. Generador del Modelo 3D del Toyota Supra MK4 mediante Algoritmo Procedural de Partículas
+        function createSupraMK4() {
+            const points = [];
+            const colors = [];
+            const colorPrimary = state.primaryColor;
+            const colorAccent = new THREE.Color(0xffffff);
+            const colorRed = new THREE.Color(0xff1133);
+            const colorGlass = new THREE.Color(0x336688);
+
+            // Función auxiliar para añadir puntos con variación
+            function addPoint(x, y, z, colorObj, density = 1) {
+                for(let i = 0; i < density; i++) {
+                    const jitter = 0.012;
+                    const px = x + (Math.random() - 0.5) * jitter;
+                    const py = y + (Math.random() - 0.5) * jitter;
+                    const pz = z + (Math.random() - 0.5) * jitter;
+                    points.push(px, py, pz);
+                    colors.push(colorObj.r, colorObj.g, colorObj.b);
+                }
+            }
+
+            // Dimensiones del Supra MK4 (escalado aproximado en metros para 3D)
+            const length = 4.2; // Z
+            const width = 1.8;   // X
+            const height = 1.25; // Y
+
+            // PERFIL MATEMÁTICO DE LA CARROCERÍA DEL SUPRA MK4
+            const stepsZ = 160;
+            const stepsX = 70;
+
+            for (let i = 0; i <= stepsZ; i++) {
+                const zNorm = (i / stepsZ); // 0 (frente) a 1 (atrás)
+                const z = (zNorm - 0.5) * length;
+
+                // Ancho según sección Z (Diseño Fastback redondeado del Supra)
+                let currentWidth = width * 0.48;
+                if (zNorm < 0.15) {
+                    currentWidth *= Math.sin((zNorm / 0.15) * (Math.PI / 2)); // Parachoques frontal curvado
+                } else if (zNorm > 0.85) {
+                    currentWidth *= Math.cos(((zNorm - 0.85) / 0.15) * (Math.PI / 2)); // Trasera curva
+                }
+
+                // Altura de la línea del chasis/techo
+                let yProfile = 0.25; // Base del chasis
+                let isRoof = false;
+                let isHood = false;
+                let isGlass = false;
+
+                if (zNorm >= 0.12 && zNorm < 0.45) {
+                    // Capó largo característico del motor 2JZ
+                    yProfile = 0.28 + Math.sin((zNorm - 0.12) / 0.33 * Math.PI) * 0.12;
+                    isHood = true;
+                } else if (zNorm >= 0.45 && zNorm < 0.72) {
+                    // Cabina / Parabrisas y Techo curvo
+                    const cabinFactor = Math.sin((zNorm - 0.45) / 0.27 * Math.PI);
+                    yProfile = 0.4 + cabinFactor * 0.55;
+                    isRoof = true;
+                    if (zNorm < 0.52 || zNorm > 0.67) isGlass = true;
+                } else if (zNorm >= 0.72) {
+                    // Caída estilo Fastback y maletero
+                    const rearFactor = (1 - (zNorm - 0.72) / 0.28);
+                    yProfile = 0.32 + rearFactor * 0.25;
+                }
+
+                // Generar superficie exterior
+                for (let j = 0; j <= stepsX; j++) {
+                    const xNorm = (j / stepsX) - 0.5; // -0.5 a 0.5
+                    const x = xNorm * currentWidth * 2;
+
+                    // Excluir huecos de las ruedas (Wheel Arches)
+                    const isFrontWheelZone = (zNorm > 0.20 && zNorm < 0.34 && Math.abs(x) > currentWidth * 0.65);
+                    const isRearWheelZone = (zNorm > 0.68 && zNorm < 0.82 && Math.abs(x) > currentWidth * 0.65);
+
+                    if (!isFrontWheelZone && !isRearWheelZone) {
+                        // Perfil de arco superior del vehículo
+                        const heightFactor = Math.cos(xNorm * Math.PI);
+                        let y = yProfile * Math.max(0.2, heightFactor);
+
+                        // Selección de color según parte del vehículo
+                        let pointColor = colorPrimary;
+                        if (isGlass && Math.abs(xNorm) < 0.4) pointColor = colorGlass;
+
+                        // Faros delanteros redondeados icónicos del Supra
+                        if (zNorm < 0.14 && zNorm > 0.10 && Math.abs(x) > currentWidth * 0.35) {
+                            pointColor = colorAccent;
+                            addPoint(x, y + 0.05, z, pointColor, 3);
+                        }
+                        // Faros traseros icónicos (4 aros rojos)
+                        else if (zNorm > 0.96 && Math.abs(x) > currentWidth * 0.2) {
+                            pointColor = colorRed;
+                            addPoint(x, y + 0.08, z, pointColor, 4);
+                        } 
+                        else {
+                            addPoint(x, y, z, pointColor, 1);
+                        }
+                    }
+                }
+            }
+
+            // ALERÓN TRASERO ICÓNICO DEL SUPRA MK4 (Large Rear Wing)
+            const wingZ = length * 0.42; // Cerca de la parte trasera
+            const wingWidth = width * 0.85;
+            const wingHeight = 0.75;
+
+            // Soportes del alerón
+            [-wingWidth * 0.35, wingWidth * 0.35].forEach(xPos => {
+                for (let y = 0.35; y <= wingHeight; y += 0.02) {
+                    for (let zOffset = -0.1; zOffset <= 0.1; zOffset += 0.02) {
+                        addPoint(xPos, y, wingZ + zOffset, colorPrimary, 2);
+                    }
+                }
+            });
+
+            // Ala superior curvada
+            for (let x = -wingWidth / 2; x <= wingWidth / 2; x += 0.02) {
+                const wingCurve = Math.cos((x / wingWidth) * Math.PI) * 0.05;
+                for (let zOffset = -0.12; zOffset <= 0.08; zOffset += 0.02) {
+                    addPoint(x, wingHeight + wingCurve, wingZ + zOffset, colorPrimary, 2);
+                }
+            }
+
+            // LLANTAS Y RUEDAS (4 Ruedas detalladas con discos/puntos)
+            const wheelPositions = [
+                { x: -width * 0.48, y: 0.28, z: -length * 0.30 }, // Delantera Izq
+                { x:  width * 0.48, y: 0.28, z: -length * 0.30 }, // Delantera Der
+                { x: -width * 0.48, y: 0.28, z:  length * 0.25 }, // Trasera Izq
+                { x:  width * 0.48, y: 0.28, z:  length * 0.25 }  // Trasera Der
+            ];
+
+            wheelPositions.forEach((pos) => {
+                const radius = 0.28;
+                const rimDepth = 0.15;
+                
+                for (let angle = 0; angle < Math.PI * 2; angle += 0.12) {
+                    for (let r = 0.05; r <= radius; r += 0.04) {
+                        const wy = pos.y + Math.sin(angle) * r;
+                        const wz = pos.z + Math.cos(angle) * r;
+                        const isRim = r > radius * 0.5;
+                        const wheelColor = isRim ? colorAccent : new THREE.Color(0x333333);
+
+                        for (let wx = pos.x - rimDepth/2; wx <= pos.x + rimDepth/2; wx += 0.04) {
+                            addPoint(wx, wy, wz, wheelColor, 1);
+                        }
+                    }
+                }
+            });
+
+            // CREAR GEOMETRÍA DE PUNTOS DE THREE.JS
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+            geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+            // Material de puntos glowing
+            const material = new THREE.PointsMaterial({
+                size: state.pointSize,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.85,
+                blending: THREE.AdditiveBlending
+            });
+
+            carPointCloud = new THREE.Points(geometry, material);
+            scene.add(carPointCloud);
+
+            // Actualizar contador UI
+            document.getElementById('particle-count').innerText = (points.length / 3).toLocaleString();
+
+            // NEÓN UNDERGLOW (Suelo bajo el chasis)
+            createUnderglow();
+        }
+
+        // 3. Sistema de Neón Underglow debajo del Coche
+        function createUnderglow() {
+            const points = [];
+            const colors = [];
+            const uWidth = 1.6;
+            const uLength = 3.8;
+
+            for (let x = -uWidth/2; x <= uWidth/2; x += 0.08) {
+                for (let z = -uLength/2; z <= uLength/2; z += 0.08) {
+                    points.push(x, 0.02, z);
+                    colors.push(state.primaryColor.r, state.primaryColor.g, state.primaryColor.b);
+                }
+            }
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+            geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+            const material = new THREE.PointsMaterial({
+                size: 0.08,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.6,
+                blending: THREE.AdditiveBlending
+            });
+
+            underglowPoints = new THREE.Points(geometry, material);
+            scene.add(underglowPoints);
+        }
+
+        // 4. Sistema de Partículas de Humo Animado (Burnout Smoke) en Neumáticos Traseros
+        function createSmokeSystem() {
+            const smokeCount = 1200;
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(smokeCount * 3);
+            const scales = new Float32Array(smokeCount);
+            const opacities = new Float32Array(smokeCount);
+
+            // Posiciones iniciales de las ruedas traseras
+            const rearLeftX = -0.85;
+            const rearRightX = 0.85;
+            const rearZ = 1.05;
+
+            for (let i = 0; i < smokeCount; i++) {
+                const isLeft = Math.random() > 0.5;
+                positions[i * 3 + 0] = (isLeft ? rearLeftX : rearRightX) + (Math.random() - 0.5) * 0.2;
+                positions[i * 3 + 1] = 0.1 + Math.random() * 0.1;
+                positions[i * 3 + 2] = rearZ + (Math.random() - 0.5) * 0.2;
+
+                scales[i] = Math.random() * 0.15 + 0.05;
+                opacities[i] = Math.random();
+
+                // Datos de velocidad por partícula
+                smokeParticles.push({
+                    vx: (Math.random() - 0.5) * 0.02,
+                    vy: Math.random() * 0.025 + 0.01,
+                    vz: Math.random() * 0.03 + 0.015, // Sale empujado hacia atrás
+                    life: Math.random(),
+                    maxLife: 1.0 + Math.random() * 1.5,
+                    isLeft: isLeft
+                });
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+            const material = new THREE.PointsMaterial({
+                color: state.smokeColor,
+                size: 0.18,
+                transparent: true,
+                opacity: 0.35,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+
+            smokeSystem = new THREE.Points(geometry, material);
+            scene.add(smokeSystem);
+        }
+
+        // Animación fotograma a fotograma del humo
+        function updateSmoke() {
+            if (!smokeSystem) return;
+
+            if (!state.smokeActive) {
+                smokeSystem.visible = false;
+                return;
+            }
+            smokeSystem.visible = true;
+
+            const positions = smokeSystem.geometry.attributes.position.array;
+            const rearLeftX = -0.85;
+            const rearRightX = 0.85;
+            const rearZ = 1.05;
+
+            for (let i = 0; i < smokeParticles.length; i++) {
+                const p = smokeParticles[i];
+
+                // Avanzar vida útil
+                p.life += 0.015 * state.speedMultiplier;
+
+                if (p.life >= p.maxLife) {
+                    // Reiniciar partícula en la rueda trasera
+                    p.life = 0;
+                    positions[i * 3 + 0] = (p.isLeft ? rearLeftX : rearRightX) + (Math.random() - 0.5) * 0.2;
+                    positions[i * 3 + 1] = 0.1 + Math.random() * 0.05;
+                    positions[i * 3 + 2] = rearZ + (Math.random() - 0.5) * 0.1;
+                } else {
+                    // Mover partícula expandiéndose y subiendo
+                    positions[i * 3 + 0] += p.vx * (1 + p.life);
+                    positions[i * 3 + 1] += p.vy;
+                    positions[i * 3 + 2] += p.vz * state.speedMultiplier;
+                }
+            }
+
+            smokeSystem.geometry.attributes.position.needsUpdate = true;
+        }
+
+        // 5. Malla de Suelo Grid Cyberpunk
+        function createCyberGrid() {
+            gridHelper = new THREE.GridHelper(30, 40, 0x00f3ff, 0x112233);
+            gridHelper.position.y = 0;
+            gridHelper.material.opacity = 0.35;
+            gridHelper.material.transparent = true;
+            scene.add(gridHelper);
+        }
+
+        // 6. Configurar Interacción y Listeners de UI
+        function setupEvents() {
+            // Ajuste de Ventana / Responsive
+            window.addEventListener('resize', onWindowResize);
+
+            // Toggle Burnout / Humo
+            const btnSmoke = document.getElementById('btn-smoke');
+            btnSmoke.addEventListener('click', () => {
+                state.smokeActive = !state.smokeActive;
+                btnSmoke.classList.toggle('active', state.smokeActive);
+            });
+
+            // Toggle Rotación 360
+            const btnRotate = document.getElementById('btn-rotate');
+            btnRotate.addEventListener('click', () => {
+                state.autoRotate = !state.autoRotate;
+                btnRotate.classList.toggle('active', state.autoRotate);
+            });
+
+            // Toggle Neón Chassis
+            const btnUnderglow = document.getElementById('btn-underglow');
+            btnUnderglow.addEventListener('click', () => {
+                state.underglowActive = !state.underglowActive;
+                underglowPoints.visible = state.underglowActive;
+                btnUnderglow.classList.toggle('active', state.underglowActive);
+            });
+
+            // Slider de Velocidad
+            const sliderSpeed = document.getElementById('slider-speed');
+            sliderSpeed.addEventListener('input', (e) => {
+                state.speedMultiplier = parseFloat(e.target.value);
+                document.getElementById('speed-val').innerText = state.speedMultiplier.toFixed(1) + 'x';
+            });
+
+            // Slider de Tamaño de Puntos
+            const sliderSize = document.getElementById('slider-size');
+            sliderSize.addEventListener('input', (e) => {
+                state.pointSize = parseFloat(e.target.value);
+                carPointCloud.material.size = state.pointSize;
+                document.getElementById('size-val').innerText = state.pointSize.toFixed(2);
+            });
+
+            // Color Pickers para el Supra / Neon
+            const colorBtns = document.querySelectorAll('.color-btn');
+            colorBtns.forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    colorBtns.forEach(b => b.classList.remove('scale-110', 'border-white/40'));
+                    btn.classList.add('scale-110', 'border-white/40');
+
+                    const hexColor = btn.getAttribute('data-color');
+                    const newColor = new THREE.Color(hexColor);
+                    
+                    state.primaryColor = newColor;
+
+                    // Re-generar modelo con nuevo esquema de color
+                    scene.remove(carPointCloud);
+                    scene.remove(underglowPoints);
+                    createSupraMK4();
+
+                    // Actualizar color de humo derivado
+                    smokeSystem.material.color = newColor;
+                    gridHelper.material.color = newColor;
+                });
+            });
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // 7. Bucle Principal de Renderizado / Animación
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Rotar coche en 360 grados si está activo
+            if (state.autoRotate && carPointCloud) {
+                const rotDelta = state.rotationSpeed * state.speedMultiplier;
+                carPointCloud.rotation.y += rotDelta;
+                if (underglowPoints) underglowPoints.rotation.y += rotDelta;
+            }
+
+            // Animación del humo de neumáticos
+            updateSmoke();
+
+            // Actualizar controles de cámara
+            controls.update();
+
+            // Medir FPS
+            calculateFPS();
+
+            // Renderizar escena
+            renderer.render(scene, camera);
+        }
+
+        function calculateFPS() {
+            frameCount++;
+            const now = performance.now();
+            if (now - lastTime >= 1000) {
+                document.getElementById('fps-meter').innerText = frameCount;
+                frameCount = 0;
+                lastTime = now;
+            }
+        }
+    </script>
+</body>
+</html>
